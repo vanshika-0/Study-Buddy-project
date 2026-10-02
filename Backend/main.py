@@ -1,0 +1,1477 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel,Field
+from uuid import uuid4
+import groq
+import os
+import re
+import json
+import asyncio
+from urllib.request import Request, urlopen
+from urllib.error import HTTPError
+from dotenv import load_dotenv
+
+from fastapi.middleware.cors import CORSMiddleware
+from models.User import User
+from models.Dashboard import Dashboard
+from models.StudyTime import StudyTimeRequest
+from models.Activity import UserActivity
+import random
+
+from bson import ObjectId
+
+
+#c-email imports
+from fastapi_mail import FastMail, MessageSchema, ConnectionConfig
+from pydantic import EmailStr
+
+
+
+
+
+#2
+from pymongo import MongoClient
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+
+load_dotenv()
+
+# The app's calendar is based on the user's local Indian time, while MongoDB
+# timestamps remain UTC. Keeping this explicit prevents a UTC deployment from
+# treating late-night/early-morning sessions as belonging to the wrong day.
+APP_TIMEZONE = ZoneInfo(os.getenv("APP_TIMEZONE", "Asia/Kolkata"))
+
+
+def local_now():
+    return datetime.now(APP_TIMEZONE)
+
+
+def local_today():
+    return local_now().date()
+
+app = FastAPI()
+
+
+# Define allowed origins (comma-separated in FRONTEND_ORIGINS for deployment).
+configured_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.getenv("FRONTEND_ORIGINS", "").split(",")
+    if origin.strip()
+]
+origins = configured_origins + [
+    "https://study-buddy-one-swart.vercel.app",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_origin_regex=r"https://.*\.vercel\.app$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def preserve_deployment_cors_headers(request, call_next):
+    """Keep CORS headers on API errors as well as successful responses."""
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        print("Unhandled API error:", repr(exc))
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": "The server could not process this request."},
+        )
+    origin = request.headers.get("origin", "").rstrip("/")
+    if origin in origins or origin.endswith(".vercel.app"):
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Vary"] = "Origin"
+    if request.url.path.startswith(("/api/", "/planner", "/getPlanner", "/updateTask", "/addTask", "/deleteTask")):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
+
+@app.exception_handler(Exception)
+async def unexpected_api_error(request, exc):
+    """Return API errors through the CORS middleware instead of a browser-only CORS message."""
+    print("Unhandled API error:", repr(exc))
+    return JSONResponse(status_code=500, content={"detail": "The server could not process this request. Check the backend terminal for details."})
+
+#c
+conf = ConnectionConfig(
+    MAIL_FROM=os.getenv("MAIL_FROM"),
+    MAIL_PASSWORD=os.getenv("MAIL_PASSWORD"),
+    MAIL_USERNAME=os.getenv("MAIL_USERNAME"),
+    MAIL_PORT=int(os.getenv("MAIL_PORT", "465")),
+    MAIL_SERVER=os.getenv("MAIL_SERVER", "smtp.gmail.com"),
+    MAIL_STARTTLS=os.getenv("MAIL_STARTTLS", "false").lower() == "true",
+    MAIL_SSL_TLS=os.getenv("MAIL_SSL_TLS", "true").lower() == "true",
+    USE_CREDENTIALS=True
+)
+
+#3 -step(make database and coolection)
+MONGO_URI=os.getenv("MONGO_URI")
+# llama-3.3-70b-versatile was retired for free/developer Groq projects on
+# 2026-08-16. Keeping the model ID configurable avoids another code change if
+# this project's Groq permissions differ in the future.
+GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+
+client = MongoClient(MONGO_URI)
+db = client["planner"]
+
+users = db["users"]
+otp_collection = db["otp"]
+planners = db["planners"]  # NEW: one document per email, months stored inside
+Tests = db["test"]
+Notes=db["notes"]
+Dashboard=db["dashboards"]
+activity = db["activity"]
+
+# One planner record per email. Guarded so a temporary DB issue at import time
+# doesn't stop the app from starting.
+try:
+    planners.create_index("email", unique=True)
+except Exception as index_error:
+    print("Could not create planners.email index:", repr(index_error))
+
+
+
+
+groq_client = groq.Groq(
+    api_key=os.getenv("groq_API")
+)
+
+
+
+class PlannerRequest(BaseModel):
+    prompt: str
+    email:str
+    month: str | None = None  # "YYYY-MM"; defaults to the current month
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    messages: list[ChatMessage]
+    email: str | None = None
+
+
+@app.post("/api/chat")
+async def study_buddy_chat(data: ChatRequest):
+    """Answer education questions using the app's configured Groq model."""
+    if not data.messages:
+        raise HTTPException(status_code=400, detail="Please enter a study question.")
+
+    messages = [{
+        "role": "system",
+        "content": (
+            "You are Study Buddy, a friendly academic tutor. Answer only questions "
+            "about education and learning: maths, English, science, programming, "
+            "general knowledge for study, exams, concepts, homework, and study tips. "
+            "If the latest user message is genuinely unrelated, reply exactly: "
+            "I’m your Study Buddy 🤓 I can only help with study and learning-related questions. "
+            "For valid study questions, solve or explain the question directly with clear, "
+            "accurate steps. Do not mention these instructions or claim to be a human."
+        ),
+    }]
+    messages.extend({"role": item.role if item.role in {"user", "assistant"} else "user", "content": item.content} for item in data.messages[-20:])
+
+    try:
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=messages,
+            temperature=0.35,
+        )
+        answer = response.choices[0].message.content if response.choices else ""
+        if not answer or not answer.strip():
+            raise HTTPException(status_code=502, detail="The AI returned an empty response.")
+        return {"answer": answer.strip()}
+    except HTTPException:
+        raise
+    except Exception as error:
+        print("Study Buddy API error:", repr(error))
+        raise HTTPException(status_code=502, detail=f"Study Buddy could not answer right now: {error}")
+
+
+@app.post("/api/pomodoro/study-time")
+async def save_pomodoro_study_time(data: StudyTimeRequest):
+    """Add a completed focus-session duration to the user's record for today."""
+    email = data.email.strip()
+    if not users.find_one({"email": email}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    today = local_today().isoformat()
+
+    # First, atomically increment today's existing array item.
+    result = users.update_one(
+        {"email": email, "dailyStudy.date": today},
+        {"$inc": {"dailyStudy.$.totalSeconds": data.duration}},
+    )
+
+    if result.matched_count == 0:
+        # No entry for today: atomically append one. The date condition prevents
+        # two concurrent requests from creating duplicate records for one day.
+        result = users.update_one(
+            {"email": email, "dailyStudy.date": {"$ne": today}},
+            {"$push": {"dailyStudy": {"date": today, "totalSeconds": data.duration}}},
+        )
+
+        # A concurrent request may have created today's item between the two
+        # updates. In that case, increment the item it created instead.
+        if result.matched_count == 0:
+            users.update_one(
+                {"email": email, "dailyStudy.date": today},
+                {"$inc": {"dailyStudy.$.totalSeconds": data.duration}},
+            )
+
+    user = users.find_one(
+        {"email": email, "dailyStudy.date": today},
+        {"dailyStudy.$": 1, "_id": 0},
+    )
+    today_record = user["dailyStudy"][0]
+
+    return {
+        "message": "Study time saved",
+        "date": today_record["date"],
+        "totalSeconds": today_record["totalSeconds"],
+    }
+
+
+@app.get("/")
+def home():
+    return {"message": "Hello World"}
+
+
+# ---------------------------------------------------------------------------
+# Month-wise planner storage
+#
+# One document per email in the `planners` collection:
+#   {
+#     "email": "user@example.com",
+#     "months": {
+#       "2026-01": {"schedule": []},
+#       ...
+#       "2026-12": {"schedule": []}
+#     },
+#     "createdAt": ..., "updatedAt": ...
+#   }
+# Every write targets only `months.<YYYY-MM>.schedule...`, so other months are
+# never touched.
+# ---------------------------------------------------------------------------
+
+MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+TASK_EDITABLE_FIELDS = {"task", "description", "start_time", "end_time", "done", "revisionRequired"}
+TASK_NEW_FIELDS = TASK_EDITABLE_FIELDS | {"date"}
+
+
+def validate_month(month):
+    if not month or not MONTH_RE.match(month):
+        raise HTTPException(status_code=400, detail="Invalid month. Use the YYYY-MM format.")
+    return month
+
+
+def month_keys(year: int):
+    return [f"{year}-{m:02d}" for m in range(1, 13)]
+
+
+def is_valid_date(value):
+    if not isinstance(value, str):
+        return False
+    try:
+        datetime.strptime(value, "%Y-%m-%d")
+        return True
+    except ValueError:
+        return False
+
+
+def parse_doc_ref(doc_id: str, month: str | None):
+    """Resolve (planner _id, month).
+
+    `docId` may be a plain id (month sent separately) or "<id>:<YYYY-MM>". The
+    dashboard endpoints return the second form, so a dashboard that simply
+    passes `docId` + `taskIndex` back to /updateTask keeps working unchanged.
+    """
+    if ":" in doc_id:
+        doc_id, ref_month = doc_id.split(":", 1)
+        month = month or ref_month
+    try:
+        oid = ObjectId(doc_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid document id")
+    return oid, validate_month(month)
+
+
+
+def ensure_planner(email: str, year: int | None = None):
+    """Return the user's single planner doc, creating it / its empty months if needed."""
+    year = year or local_today().year
+    doc = planners.find_one({"email": email})
+
+    if not doc:
+        now = datetime.now(timezone.utc)
+        # $setOnInsert makes concurrent first-time requests safe: only one insert wins.
+        planners.update_one(
+            {"email": email},
+            {"$setOnInsert": {
+                "createdAt": now,
+                "updatedAt": now,
+                "months": {},
+            }},
+            upsert=True,
+        )
+        doc = planners.find_one({"email": email})
+
+    existing = doc.get("months") or {}
+    created_any = False
+    for key in month_keys(year):
+        if key not in existing:
+            # Only creates the month if it is still missing; never overwrites data.
+            planners.update_one(
+                {"_id": doc["_id"], f"months.{key}": {"$exists": False}},
+                {"$set": {f"months.{key}": {"schedule": []}}},
+            )
+            created_any = True
+    if created_any:
+        doc = planners.find_one({"_id": doc["_id"]})
+    return doc
+
+
+def iter_planner_tasks(email: str):
+    """Yield (planner_doc, month, index_in_month, task) for every task of every month."""
+    doc = ensure_planner(email)
+    months = doc.get("months") or {}
+    for month in sorted(months):
+        for index, task in enumerate((months[month] or {}).get("schedule", [])):
+            yield doc, month, index, task
+
+
+class PlannerQuery(BaseModel):
+    email: str
+    year: int | None = None
+
+
+@app.post("/getPlanner")
+async def get_planner(data: PlannerQuery):
+    """Return the user's planner record. All 12 months of the year always exist (empty by default)."""
+    email = data.email.strip()
+    if not users.find_one({"email": email}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+    doc = ensure_planner(email, data.year)
+    return {
+        "_id": str(doc["_id"]),
+        "email": email,
+        "months": doc.get("months", {}),
+    }
+
+
+@app.post("/planner")
+async def planner(data: PlannerRequest):
+    print("email planner",data.email); 
+    try:
+        email = data.email.strip()
+        today_date = local_today()
+        month = validate_month(data.month or today_date.strftime("%Y-%m"))
+        planner_doc = ensure_planner(email, int(month[:4]))
+        existing_schedule = ((planner_doc.get("months") or {}).get(month) or {}).get("schedule", [])
+
+        # Default date: today if the selected month is the current month, else the 1st of it.
+        default_date = today_date.isoformat() if today_date.strftime("%Y-%m") == month else f"{month}-01"
+        existing_summary = json.dumps([
+            {
+                "date": t.get("date"),
+                "task": t.get("task"),
+                "start_time": t.get("start_time"),
+                "end_time": t.get("end_time"),
+            }
+            for t in existing_schedule
+        ])
+
+        prompt = f"""
+You are an expert AI Study Planner.
+
+The user will provide their daily routine or an instruction.
+
+Create an optimized study timetable for the month {month}.
+
+Return ONLY valid JSON.
+
+Format:
+
+{{
+  "schedule": [
+    {{
+      "date": "{month}-01",
+      "task": "Study DSA",
+      "start_time": "17:00",
+      "end_time": "19:00",
+      "description": "Optional notes"
+    }}
+  ]
+}}
+
+Return output in these datatypes:
+- "date": "YYYY-MM-DD"
+- "task": "Task Name"
+- "start_time": "HH:MM"
+- "end_time": "HH:MM"
+- "description": "Optional notes"
+
+Rules:
+1. Return only JSON.
+2. Don't write markdown.
+3. Don't explain anything.
+4. Respect all timings given by the user.
+5. Add breaks where appropriate.
+6. If the user doesn't specify a date, use this date: {default_date}.
+7. Never use the example date from this prompt; use {default_date} when no date is given.
+8. Ensure no overlapping tasks.
+9. If the user asks to generate a planner/timetable for a month or any period but does not provide their daily routine, available study timings, subjects, or any timetable information, do not create a schedule on your own. Return an empty schedule: {{"schedule": []}}
+10. All dates MUST be inside {month}.
+11. The selected month already contains these tasks: {existing_summary}
+    Return ONLY the NEW tasks to ADD. Do not repeat or modify existing tasks, and do not overlap their times on the same date.
+
+User Input:
+{data.prompt}
+"""
+
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert timetable planner."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.3
+        )
+
+        content = response.choices[0].message.content
+
+        if not content or content.strip() == "":
+            return {
+                "success": False,
+                "error": "No response from the model."
+            }
+       
+        parsed_content = json.loads(content)  # {"schedule": [...]}
+
+        # Keep only well-formed tasks that belong to the selected month, and
+        # make sure every new task starts as not done / not marked for revision.
+        generated = parsed_content.get("schedule", []) or []
+        new_tasks = []
+        for task in generated:
+            if not isinstance(task, dict):
+                continue
+            task_date = task.get("date")
+            if not is_valid_date(task_date) or not task_date.startswith(month):
+                continue
+            task["description"] = task.get("description", "")
+            task["done"] = False
+            # Revision status lives on the same embedded schedule task as `done`.
+            task["revisionRequired"] = False
+            new_tasks.append(task)
+
+        if generated and not new_tasks:
+            return {
+                "success": False,
+                "error": f"The generated tasks were outside the selected month ({month}).",
+            }
+
+        if new_tasks:
+            # Append to ONLY this month; existing tasks and other months are untouched.
+            planners.update_one(
+                {"_id": planner_doc["_id"]},
+                {
+                    "$push": {f"months.{month}.schedule": {"$each": new_tasks}},
+                    "$set": {"updatedAt": datetime.now(timezone.utc)},
+                },
+            )
+
+        updated_doc = planners.find_one({"_id": planner_doc["_id"]})
+        month_schedule = ((updated_doc.get("months") or {}).get(month) or {}).get("schedule", [])
+
+        return {
+            "success": True,
+            "response": {"schedule": month_schedule},
+            "month": month,
+            "_id": str(planner_doc["_id"]),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
+#Dashboard----
+class UpdateTaskRequest(BaseModel):
+    docId: str
+    taskIndex: int
+    updates: dict
+    month: str | None = None
+
+def build_user_activity(email: str):
+    """Build activity solely from the saved task `done` values in the month-wise planner."""
+    completed_by_date = {}
+
+    for _doc, _month, _index, task in iter_planner_tasks(email):
+        task_date = task.get("date")
+        if not task.get("done") or not isinstance(task_date, str):
+            continue
+        try:
+            datetime.strptime(task_date, "%Y-%m-%d")
+        except ValueError:
+            continue
+        completed_by_date[task_date] = completed_by_date.get(task_date, 0) + 1
+
+    active_days = {datetime.strptime(day, "%Y-%m-%d").date() for day in completed_by_date}
+    today = local_today()
+
+    def consecutive_days_ending_on(end_day):
+        streak = 0
+        cursor = end_day
+        while cursor in active_days:
+            streak += 1
+            cursor -= timedelta(days=1)
+        return streak
+
+    # Today may still be in progress, so yesterday's streak remains visible
+    # until a full missed day has passed.
+    current_end_day = today if today in active_days else today - timedelta(days=1)
+    current_streak = consecutive_days_ending_on(current_end_day)
+    longest_streak = max(
+        (consecutive_days_ending_on(day) for day in active_days),
+        default=0,
+    )
+    daily_activity = [
+        {"date": day, "completedTasks": count}
+        for day, count in sorted(completed_by_date.items())
+    ]
+
+    summary = UserActivity(
+        email=email,
+        dailyActivity=daily_activity,
+        currentStreak=current_streak,
+        longestStreak=longest_streak,
+    ).model_dump()
+    activity.update_one({"email": email}, {"$set": summary}, upsert=True)
+    return summary
+
+
+def get_study_time_summary(email: str):
+    """Read the existing users.dailyStudy data and shape it for the dashboard."""
+    user = users.find_one({"email": email}, {"dailyStudy": 1, "_id": 0}) or {}
+    study_by_date = {}
+    for record in user.get("dailyStudy", []):
+        day = record.get("date")
+        seconds = record.get("totalSeconds", 0)
+        if isinstance(day, str) and isinstance(seconds, (int, float)):
+            study_by_date[day] = study_by_date.get(day, 0) + max(0, int(seconds))
+
+    today = local_today()
+    monday = today - timedelta(days=today.weekday())
+    weekly_study_time = []
+    for offset in range(7):
+        day = monday + timedelta(days=offset)
+        date_string = day.isoformat()
+        weekly_study_time.append({
+            "date": date_string,
+            "day": day.strftime("%a"),
+            "totalSeconds": study_by_date.get(date_string, 0),
+        })
+
+    return {
+        "todaySeconds": study_by_date.get(today.isoformat(), 0),
+        "totalSeconds": sum(study_by_date.values()),
+        "dailyStudy": [{"date": day, "totalSeconds": seconds} for day, seconds in sorted(study_by_date.items())],
+        "weeklyStudyTime": weekly_study_time,
+    }
+
+def get_test_performance_summary(email: str):
+    """Return persisted completed attempts for the Dashboard progress graph."""
+    attempts = list(Tests.find({"email": email}, {"topic": 1, "accuracy": 1, "score": 1, "createdAt": 1, "questionType": 1}).sort("createdAt", 1))
+    points = []
+    for number, item in enumerate(attempts, 1):
+        created = item.get("createdAt")
+        points.append({"attempt": number, "topic": item.get("topic", "Test"), "accuracy": float(item.get("accuracy", item.get("score", 0))), "date": created.isoformat() if isinstance(created, datetime) else str(created or ""), "weakTopics": item.get("weakTopics", [])})
+    return {"points": points, "average": round(sum(p["accuracy"] for p in points) / len(points), 1) if points else 0, "best": max((p["accuracy"] for p in points), default=0)}
+
+
+@app.get("/api/dashboard/activity")
+async def get_dashboard_activity(email: str):
+    email = email.strip()
+    if not users.find_one({"email": email}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    summary = build_user_activity(email)
+    first_day = (local_today() - timedelta(days=364)).isoformat()
+    summary["dailyActivity"] = [
+        item for item in summary["dailyActivity"] if item["date"] >= first_day
+    ]
+    summary["studyTime"] = get_study_time_summary(email)
+    summary["testPerformance"] = get_test_performance_summary(email)
+    return summary
+
+
+@app.get("/api/dashboard/today-schedule")
+async def get_today_schedule(email: str):
+    """Return every saved schedule task whose calendar date is today."""
+    email = email.strip()
+    if not users.find_one({"email": email}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    today = local_today().isoformat()
+    tasks = []
+    planner_doc = ensure_planner(email)
+    month = today[:7]
+    schedule = ((planner_doc.get("months") or {}).get(month) or {}).get("schedule", [])
+    for task_index, task in enumerate(schedule):
+        if task.get("date") != today:
+            continue
+        tasks.append({
+            # "<planner id>:<month>" so /updateTask knows which month's schedule
+            # `taskIndex` refers to, even if the dashboard only echoes docId back.
+            "docId": f"{planner_doc['_id']}:{month}",
+            "month": month,
+            "taskIndex": task_index,
+            "task": task.get("task", "Untitled topic"),
+            "description": task.get("description", ""),
+            "start_time": task.get("start_time", ""),
+            "end_time": task.get("end_time", ""),
+            "done": bool(task.get("done", False)),
+            "revisionRequired": bool(task.get("revisionRequired", False)),
+        })
+
+    tasks.sort(key=lambda task: (task["start_time"] or "99:99", task["task"]))
+    return {"date": today, "tasks": tasks}
+
+
+@app.get("/api/dashboard/revision-tasks")
+async def get_revision_tasks(email: str):
+    """Return revision-marked tasks from every month of the saved planner."""
+    email = email.strip()
+    if not users.find_one({"email": email}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    today = local_today().isoformat()
+    tasks = []
+    for planner_doc, month, task_index, task in iter_planner_tasks(email):
+        if not task.get("revisionRequired", False):
+            continue
+        tasks.append({
+            "docId": f"{planner_doc['_id']}:{month}",
+            "month": month,
+            "taskIndex": task_index,
+            "task": task.get("task", "Untitled topic"),
+            "description": task.get("description", ""),
+            "date": task.get("date", ""),
+            "start_time": task.get("start_time", ""),
+            "end_time": task.get("end_time", ""),
+            "done": bool(task.get("done", False)),
+            "revisionRequired": True,
+        })
+
+    tasks.sort(key=lambda task: (task["date"] or "9999-99-99", task["start_time"] or "99:99", task["task"]))
+    return {"date": today, "tasks": tasks}
+
+
+
+
+@app.post("/updateTask")
+async def update_task(data: UpdateTaskRequest):
+    oid, month = parse_doc_ref(data.docId, data.month)
+    planner_doc = planners.find_one({"_id": oid})
+    if not planner_doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    schedule = ((planner_doc.get("months") or {}).get(month) or {}).get("schedule", [])
+    if data.taskIndex < 0 or data.taskIndex >= len(schedule):
+        raise HTTPException(status_code=400, detail="Invalid task index")
+
+    # Only known task fields may be written (also keeps client keys out of the Mongo path).
+    updates = {k: v for k, v in data.updates.items() if k in TASK_EDITABLE_FIELDS}
+    if not updates:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    # Update only this task inside this month.
+    set_fields = {f"months.{month}.schedule.{data.taskIndex}.{k}": v for k, v in updates.items()}
+    set_fields["updatedAt"] = datetime.now(timezone.utc)
+    planners.update_one({"_id": oid}, {"$set": set_fields})
+
+    build_user_activity(planner_doc["email"])
+
+    return {"success": True, "updatedTask": {**schedule[data.taskIndex], **updates}}
+
+class AddTaskRequest(BaseModel):
+    docId: str | None = None
+    email: str | None = None
+    month: str | None = None
+    task: dict
+
+@app.post("/addTask")
+async def add_task(data: AddTaskRequest):
+    task_date = data.task.get("date")
+    month = data.month or (task_date[:7] if isinstance(task_date, str) else None)
+
+    if data.docId:
+        oid, month = parse_doc_ref(data.docId, month)
+        planner_doc = planners.find_one({"_id": oid})
+        if not planner_doc:
+            raise HTTPException(status_code=404, detail="Document not found")
+    elif data.email:
+        validate_month(month)
+        planner_doc = ensure_planner(data.email.strip(), int(month[:4]))
+    else:
+        raise HTTPException(status_code=400, detail="docId or email is required")
+
+    if task_date is not None and not (is_valid_date(task_date) and task_date.startswith(month)):
+        raise HTTPException(status_code=400, detail="Task date must be inside the selected month")
+
+    new_task = {k: v for k, v in data.task.items() if k in TASK_NEW_FIELDS}
+    new_task.setdefault("done", False)
+    new_task.setdefault("revisionRequired", False)
+
+    # Push only into this month's schedule.
+    planners.update_one(
+        {"_id": planner_doc["_id"]},
+        {
+            "$push": {f"months.{month}.schedule": new_task},
+            "$set": {"updatedAt": datetime.now(timezone.utc)},
+        },
+    )
+
+    build_user_activity(planner_doc["email"])
+
+    return {"success": True, "task": new_task, "docId": str(planner_doc["_id"])}
+
+class DeleteTaskRequest(BaseModel):
+    docId: str
+    taskIndex: int
+    month: str | None = None
+
+@app.post("/deleteTask")
+async def delete_task(data: DeleteTaskRequest):
+    oid, month = parse_doc_ref(data.docId, data.month)
+    planner_doc = planners.find_one({"_id": oid})
+    if not planner_doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    schedule = list(((planner_doc.get("months") or {}).get(month) or {}).get("schedule", []))
+
+    if data.taskIndex < 0 or data.taskIndex >= len(schedule):
+        raise HTTPException(status_code=400, detail="Invalid task index")
+
+    removed_task = schedule.pop(data.taskIndex)
+
+    # Rewrite only this month's schedule.
+    planners.update_one(
+        {"_id": oid},
+        {"$set": {
+            f"months.{month}.schedule": schedule,
+            "updatedAt": datetime.now(timezone.utc),
+        }}
+    )
+
+    build_user_activity(planner_doc["email"])
+
+    return {"success": True, "deletedTask": removed_task}
+
+
+
+
+
+
+#d send_email func
+async def send_email(email: str, otp: str):
+
+    resend_key = os.getenv("RESEND_API_KEY")
+    if resend_key:
+        payload = json.dumps({
+            "from": os.getenv("RESEND_FROM", os.getenv("MAIL_FROM")),
+            "to": [email],
+            "subject": "Your OTP Code",
+            "text": f"Your OTP is: {otp}\n\nThis OTP is valid for 5 minutes.",
+        }).encode("utf-8")
+        request = Request(
+            "https://api.resend.com/emails",
+            data=payload,
+            headers={
+                "Authorization": f"Bearer {resend_key}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        try:
+            await asyncio.to_thread(urlopen, request, timeout=20)
+        except HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")
+            print(f"Resend delivery failed; trying SMTP fallback: {detail}")
+        except Exception as error:
+            print(f"Resend request failed; trying SMTP fallback: {error!r}")
+        else:
+            return
+
+    # Resend's onboarding@resend.dev sender is restricted unless the recipient
+    # is the Resend account owner. Fall back to the configured SMTP account so
+    # signup still works while a verified Resend domain is not configured.
+    if not all((os.getenv("MAIL_USERNAME"), os.getenv("MAIL_PASSWORD"), os.getenv("MAIL_FROM"))):
+        raise ConnectionError(
+            "Email delivery failed and SMTP fallback is not configured. "
+            "Set RESEND_FROM to a verified sender or configure MAIL_USERNAME, "
+            "MAIL_PASSWORD, and MAIL_FROM."
+        )
+
+    message = MessageSchema(
+        subject="Your OTP Code",
+        recipients=[email],
+        body=f"""
+Hello,
+
+Your OTP is: {otp}
+
+This OTP is valid for 5 minutes.
+
+Do not share it with anyone.
+""",
+        subtype="plain"
+    )
+
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+
+#1signup
+class user(BaseModel):
+    email:str
+    
+
+@app.post("/sendOTP")
+async def signup(data:user):
+    print("email aaenetr hua")
+    email = data.email.strip().lower()
+    print("dataemail", email)
+
+     # 1. Check if email already exists
+    try:
+        check = users.find_one({"email": email})
+    except Exception as error:
+        print("MongoDB lookup failed during signup:", repr(error))
+        raise HTTPException(
+            status_code=503,
+            detail="Database is unavailable. Check the MongoDB connection and network access.",
+        ) from error
+    if(check):
+       raise HTTPException(
+         status_code=409,
+         detail="Email already registered"
+    )
+
+    
+    
+     # 2. Generate 6 digit OTP
+    otp=str(random.randint(100000,999999))
+    print("otp",otp)
+
+      # 4. Expiry time
+    expires_at=local_now().replace(tzinfo=None)+ timedelta(minutes=5)
+       # 5. Remove old OTP if exists
+    try:
+        otp_collection.delete_many({"email": email})
+
+        # 6. Store OTP
+        otp_collection.insert_one({
+            "email":email,
+            "OTP":otp,
+            "expires_at":expires_at
+
+        })
+    except Exception as error:
+        print("MongoDB OTP write failed during signup:", repr(error))
+        raise HTTPException(
+            status_code=503,
+            detail="Database is unavailable. Check the MongoDB connection and network access.",
+        ) from error
+   # 7. Send email (implement this function)
+    print("email send krre")
+    try:
+        await send_email(email, otp)
+    except Exception as error:
+        # Do not leave an OTP that cannot be delivered, and do not turn a
+        # provider/configuration problem into an opaque generic 500 response.
+        try:
+            otp_collection.delete_one({"email": email})
+        except Exception as cleanup_error:
+            print("OTP cleanup failed:", repr(cleanup_error))
+        print("OTP email delivery failed:", repr(error))
+        raise HTTPException(
+            status_code=502,
+            detail="Could not send the verification email. Check the email service configuration and try again.",
+        ) from error
+    print("email send hgai")
+
+    return {"message":"OTP SENT SUCCESSFULLY"}
+
+
+
+#2otp
+class veri(BaseModel):
+    email:str
+    otp:str
+    password:str
+    username:str
+
+@app.post("/verifyOTP")
+async def verify(data:veri):
+    print("inside verify otp api")
+
+    check= otp_collection.find_one({"email":data.email})
+    #phle se exist nhi jrta
+    if not check:
+       raise HTTPException(
+       status_code=404,
+       detail="User not found"
+    )
+    
+    if datetime.now() > check["expires_at"]:
+       raise HTTPException(
+    status_code=401,
+    detail="OTP EXPIRES"
+)
+    if check["OTP"] == data.otp:
+        users.insert_one({"email":data.email,"password":data.password,"username":data.username})
+        otp_collection.delete_one({"email":data.email})
+        return {"message":"OTP VERIFIES SUCCESSFULLY"}
+   
+    raise HTTPException(
+    status_code=404,
+    detail="User not found"
+)
+
+
+
+#login
+
+class logi(BaseModel):
+    email:str
+    password:str
+
+@app.post("/Login")
+async def login(data:logi):
+    exist=users.find_one({"email":data.email})
+    print("username",exist["username"])
+
+    if not exist:
+     raise HTTPException(status_code=404, detail="User not found")
+
+    if exist["password"] != data.password:
+     raise HTTPException(status_code=401, detail="Invalid password")
+
+    return {
+    "message": "Login successful",
+    "username":exist["username"],
+    "email":exist["email"]
+
+    }
+
+# @app.post("/resendOTP")
+# async def resend(data: user):
+
+#     otp = str(random.randint(100000, 999999))
+#     expires_at = datetime.now() + timedelta(seconds=30)
+
+#     otp_collection.update_one(
+#         {"email": data.email},
+#         {
+#             "$set": {
+#                 "OTP": otp,
+#                 "expires_at": expires_at
+#             }
+#         }
+#     )
+
+#     await send_email(data.email, otp)
+
+#     return {
+#         "message": "OTP resent",
+#         "expires_at": expires_at.isoformat()
+#     }
+
+# @app.get("/otp-status")
+# async def otp_status(email: str):
+
+#     check = otp_collection.find_one({"email": email})
+
+#     if not check:
+#         raise HTTPException(status_code=404, detail="OTP not found")
+
+#     return {
+#         "expires_at": check["expires_at"].isoformat()
+#     }
+class TestGenerationRequest(BaseModel):
+    topic: str = ""
+    numQuestions: int = 5
+    difficulty: str = "Medium"
+    email: str
+    questionType: str = "MCQ"
+    testMode: str = "Practice"
+    examPattern: str = "Custom"
+    personalization: dict = {}
+    coverage: list[str] = []
+    advancedOptions: dict = {}
+
+
+class TestAttemptRequest(BaseModel):
+    email: str
+    topic: str
+    questions: list[dict]
+    answers: dict
+    difficulty: str
+    questionType: str
+    testMode: str
+    examPattern: str = "Custom"
+    timeTaken: int = 0
+    advancedOptions: dict = {}
+
+
+def get_revision_topic_names(email: str):
+    """Reuse the existing embedded planner revision flag instead of another model."""
+    topics = []
+    for _doc, _month, _index, task in iter_planner_tasks(email):
+        if task.get("revisionRequired") and task.get("task"):
+            topics.append(task["task"])
+    return list(dict.fromkeys(topics))
+
+
+def get_test_personalization(email: str, topic: str):
+    attempts = list(Tests.find({"email": email}).sort("createdAt", -1).limit(20))
+    topic_attempts = [item for item in attempts if item.get("topic", "").lower() == topic.lower()]
+    mistakes = []
+    for attempt in topic_attempts:
+        mistakes.extend(attempt.get("mistakes", []))
+    scores = [item.get("accuracy", item.get("score", 0)) for item in topic_attempts]
+    return {
+        "testsTaken": len(topic_attempts),
+        "averageScore": round(sum(scores) / len(scores), 1) if scores else 0,
+        "weakAreas": list(dict.fromkeys(m.get("question", "") for m in mistakes if m.get("question")))[:5],
+    }
+ 
+ 
+@app.post("/generateTest")
+async def generate(data: TestGenerationRequest):
+    print("email generateTest", data.email)
+    try:
+        if not users.find_one({"email": data.email}, {"_id": 1}):
+            raise HTTPException(status_code=404, detail="User not found")
+
+        revision_topics = get_revision_topic_names(data.email)
+        topic = data.topic.strip()
+        if data.testMode == "Revision Test" and revision_topics:
+            topic = ", ".join(revision_topics)
+        if not topic:
+            topic = ", ".join(revision_topics) if revision_topics else "General study skills"
+
+        performance = get_test_personalization(data.email, topic)
+        selected_difficulty = data.difficulty
+        if data.difficulty == "Adaptive" or data.testMode == "Challenge Me":
+            selected_difficulty = "Easy" if performance["averageScore"] < 50 else "Hard" if performance["averageScore"] >= 80 else "Medium"
+
+        short_answer_guidance = "For Short Answer questions, return `options`: [] and a concise reference answer in `correct_answer` (string). For Mixed, mix MCQ objects with these short-answer objects." if data.questionType in ("Short Answer", "Mixed") else ""
+
+        prompt = f"""
+You are an expert quiz generator for a study planner app.
+ 
+Generate a {data.questionType} test on the given topic.
+ 
+Return ONLY valid JSON. No markdown, no explanation, no extra text.
+ 
+Format:
+ 
+{{
+  "questions": [
+    {{
+      "question": "What is the time complexity of binary search?",
+      "options": ["O(n)", "O(log n)", "O(n^2)", "O(1)"],
+      "correct_answer": 1,
+      "correct_answers": [1],
+      "explanation": "Binary search halves the search space each step.",
+      "hint": "Think about halving the search area.",
+      "questionType": "MCQ",
+      "difficulty": "Medium",
+      "topic": "Binary search"
+    }}
+  ]
+}}
+ 
+Rules:
+1. Return only JSON, exactly matching the format above.
+2. Generate exactly {data.numQuestions} questions.
+3. Difficulty level: {selected_difficulty}.
+4. Each question must have exactly 4 options, including True/False, Fill in the Blank, Coding, and Scenario Based questions.
+5. "correct_answer" must be the INDEX (0-3) of one correct option. For Multiple Correct also provide every correct index in "correct_answers".
+6. Questions must be relevant to the topic and factually accurate.
+7. Do not repeat the same question twice.
+8. Keep "explanation" and "hint" simple and short (max 1-2 sentences).
+9. For Mixed, use a balanced mix of MCQ, True/False, Fill in the Blank, Multiple Correct, Scenario Based, and Coding. Otherwise set questionType to {data.questionType}.
+10. Exam pattern: {data.examPattern}. Coverage: {", ".join(data.coverage) or "balanced"}.
+11. Personalization requested: {json.dumps(data.personalization)}. Previous performance: {json.dumps(performance)}.
+12. Use these revision topics when relevant: {", ".join(revision_topics) or "none"}.
+ 
+Question-type guidance:
+{short_answer_guidance}
+
+Topic:
+{topic}
+"""
+ 
+        response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert quiz generator that returns strict JSON only.",
+                },
+                {
+                    "role": "user",
+                    "content": prompt,
+                },
+            ],
+            temperature=0.4,
+        )
+ 
+        content = response.choices[0].message.content
+ 
+        if not content or content.strip() == "":
+            return {
+                "success": False,
+                "error": "No response from the model.",
+            }
+ 
+        parsed = json.loads(content)
+ 
+        questions = parsed.get("questions", [])
+ 
+        if not questions:
+            return {
+                "success": False,
+                "error": "Model did not return any questions.",
+            }
+ 
+        # Basic validation: drop malformed questions instead of failing the whole test
+        valid_questions = []
+        for q in questions:
+            is_short_answer = data.questionType == "Short Answer" or (data.questionType == "Mixed" and not q.get("options"))
+            if is_short_answer:
+                if q.get("question") and isinstance(q.get("correct_answer"), str):
+                    q["options"] = []
+                    valid_questions.append(q)
+            elif isinstance(q.get("options"), list) and len(q["options"]) == 4 and isinstance(q.get("correct_answer"), int) and 0 <= q["correct_answer"] <= 3 and q.get("question"):
+                valid_questions.append(q)
+
+        for question in valid_questions:
+            question.setdefault("correct_answers", [question["correct_answer"]])
+            question.setdefault("questionType", data.questionType if data.questionType != "Mixed" else "MCQ")
+            question.setdefault("difficulty", selected_difficulty)
+            question.setdefault("topic", topic)
+            question.setdefault("hint", "Review the key idea in the question.")
+ 
+        if not valid_questions:
+            return {
+                "success": False,
+                "error": "Model returned malformed questions. Please try again.",
+            }
+ 
+        # tests.insert_one({
+        #     "email": data.email,
+        #     "topic": data.topic,
+        #     "difficulty": data.difficulty,
+        #     "questions": valid_questions,
+        #     "created_at": datetime.now(timezone.utc),
+        # })
+ 
+        return {
+            "success": True,
+            "questions": valid_questions,
+            "topic": topic,
+            "difficulty": selected_difficulty,
+            "revisionTopics": revision_topics,
+        }
+ 
+    except json.JSONDecodeError:
+        return {
+            "success": False,
+            "error": "Model returned invalid JSON. Please try again.",
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e),
+        }
+
+@app.post("/api/tests/submit")
+async def submit_test(data: TestAttemptRequest):
+    if not users.find_one({"email": data.email}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    correct = wrong = skipped = 0
+    mistakes = []
+    difficulty_stats = {}
+    for index, question in enumerate(data.questions):
+        selected = data.answers.get(str(index), data.answers.get(index))
+        correct_answers = question.get("correct_answers", [question.get("correct_answer")])
+        if not question.get("options") and isinstance(selected, str) and selected.strip():
+            # Use the configured Groq model to grade open responses against the
+            # generated reference answer, while keeping the same attempt record.
+            try:
+                grading_prompt = f"Return only JSON {{\"score\": 0.0}} to grade this answer from 0 to 1. Question: {question.get('question')} Reference answer: {question.get('correct_answer')} Student answer: {selected}"
+                grading = groq_client.chat.completions.create(model=GROQ_MODEL, messages=[{"role": "system", "content": "You grade short educational answers fairly and return strict JSON."}, {"role": "user", "content": grading_prompt}], temperature=0)
+                grade = json.loads(grading.choices[0].message.content).get("score", 0)
+                question["aiScore"] = max(0, min(1, float(grade)))
+            except Exception:
+                question["aiScore"] = 0
+            if question["aiScore"] >= 0.6:
+                correct += 1; outcome = "correct"
+            else:
+                wrong += 1; outcome = "wrong"
+                mistakes.append({"question": question.get("question", ""), "selectedAnswer": selected, "correctAnswers": correct_answers, "explanation": question.get("explanation", "Compare your response with the reference concept."), "topic": question.get("topic", data.topic), "difficulty": question.get("difficulty", data.difficulty)})
+            difficulty = question.get("difficulty", data.difficulty); stats = difficulty_stats.setdefault(difficulty, {"correct": 0, "total": 0}); stats["total"] += 1
+            if outcome == "correct": stats["correct"] += 1
+            continue
+        if selected is None or selected == []:
+            skipped += 1
+            outcome = "skipped"
+        else:
+            selected_set = sorted(selected if isinstance(selected, list) else [selected])
+            if selected_set == sorted(correct_answers):
+                correct += 1
+                outcome = "correct"
+            else:
+                wrong += 1
+                outcome = "wrong"
+                mistakes.append({
+                    "question": question.get("question", ""),
+                    "selectedAnswer": selected,
+                    "correctAnswers": correct_answers,
+                    "explanation": question.get("explanation", "Review the related concept."),
+                    "topic": question.get("topic", data.topic),
+                    "difficulty": question.get("difficulty", data.difficulty),
+                })
+        difficulty = question.get("difficulty", data.difficulty)
+        stats = difficulty_stats.setdefault(difficulty, {"correct": 0, "total": 0})
+        stats["total"] += 1
+        if outcome == "correct": stats["correct"] += 1
+
+    total = len(data.questions)
+    accuracy = round((correct / total) * 100, 1) if total else 0
+    hint_penalty = len(data.advancedOptions.get("hintedQuestions", [])) * 0.25
+    weak_topics = list(dict.fromkeys(item["topic"] for item in mistakes if item.get("topic")))
+    attempt = data.model_dump()
+    attempt.update({
+        "score": correct,
+        "scoreWithHintPenalty": max(0, correct - hint_penalty),
+        "accuracy": accuracy,
+        "correct": correct,
+        "wrong": wrong,
+        "skipped": skipped,
+        "mistakes": mistakes,
+        "weakTopics": weak_topics,
+        "difficultyPerformance": difficulty_stats,
+        "topicPerformance": {data.topic: {"correct": correct, "total": total, "accuracy": accuracy}},
+        "understandingScore": data.advancedOptions.get("understandingScore"),
+        "strengths": data.advancedOptions.get("strengths", []),
+        "createdAt": datetime.now(timezone.utc),
+    })
+    Tests.insert_one(attempt)
+    # PyMongo adds `_id: ObjectId(...)` to the dict passed to insert_one.
+    # Do not return that BSON-only value directly in the JSON API response.
+    attempt.pop("_id", None)
+
+    all_attempts = list(Tests.find({"email": data.email}).sort("createdAt", -1))
+    best_score = max((item.get("accuracy", item.get("score", 0)) for item in all_attempts), default=accuracy)
+    def attempt_day(item):
+        created_at = item.get("createdAt")
+        if isinstance(created_at, datetime):
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+            return created_at.astimezone(APP_TIMEZONE).date()
+        if isinstance(created_at, str):
+            try:
+                parsed = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.astimezone(APP_TIMEZONE).date()
+            except ValueError:
+                pass
+        # Older score-only test documents do not have createdAt.
+        return local_today()
+
+    unique_days = sorted({attempt_day(item) for item in all_attempts}, reverse=True)
+    streak = 0
+    cursor = local_today()
+    for day in unique_days:
+        if day == cursor:
+            streak += 1
+            cursor -= timedelta(days=1)
+        elif day < cursor:
+            break
+    badges = []
+    if len(all_attempts) == 1: badges.append("First Test")
+    if len(all_attempts) >= 5: badges.append("5 Tests Completed")
+    if streak >= 7: badges.append("7 Test Streak")
+    if accuracy >= 90: badges.append("90% Club")
+    if len({item.get("topic") for item in all_attempts if item.get("topic")}) >= 10: badges.append("10 Topics Mastered")
+
+    return {"success": True, "result": attempt, "xpEarned": correct * 10 + (10 if accuracy >= 80 else 0), "testStreak": streak, "badges": badges, "bestScore": best_score}
+
+
+@app.get("/api/tests/performance")
+async def get_test_performance(email: str, topic: str = ""):
+    attempts = list(Tests.find({"email": email, **({"topic": topic} if topic else {})}).sort("createdAt", -1))
+    scores = [item.get("accuracy", item.get("score", 0)) for item in attempts]
+    latest = attempts[0] if attempts else None
+    mistakes = [mistake for item in attempts for mistake in item.get("mistakes", [])]
+    weak_area = mistakes[0].get("topic") if mistakes else "No weak area identified yet"
+    return {"averageScore": round(sum(scores) / len(scores), 1) if scores else 0, "bestScore": max(scores, default=0), "testsTaken": len(attempts), "lastTest": latest.get("createdAt").isoformat() if latest and latest.get("createdAt") else None, "weakArea": weak_area, "attempts": [{"topic": item.get("topic"), "accuracy": item.get("accuracy", item.get("score", 0)), "createdAt": item.get("createdAt").isoformat() if item.get("createdAt") else None} for item in attempts[:20]]}
+
+
+class score(BaseModel):
+    email: str
+    score: int
+
+
+@app.post("/storeScore")
+async def store_score(data: score):
+    if not users.find_one({"email": data.email}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="User not found")
+    Tests.insert_one({"email": data.email, "score": data.score})
+    return {"message": "success"}
+
+
+
+
+class Note(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    text: str
+    color: str
+    pinned: bool = False
+
+
+class GetNotes(BaseModel):
+    email: str
+
+
+class AddNote(BaseModel):
+    email: str
+    text: str
+    color: str
+    pinned: bool = False
+
+
+# GET - load all notes
+@app.get("/api/notes")
+async def getNotes(email: str):
+
+    response = Notes.find_one({"email": email})
+
+    if not response:
+        return {"notes": []}
+
+    return {
+        "message": "data found",
+        "notes": response["notes"]
+    }
+
+
+# POST - add new note
+@app.post("/api/notes")
+async def addNote(data: AddNote):
+
+    new_note = Note(
+        text=data.text,
+        color=data.color,
+        pinned=data.pinned
+    ).model_dump()
+    new_note["createdAt"] = datetime.now().isoformat()
+
+    response = Notes.find_one({"email": data.email})
+
+    if not response:
+        Notes.insert_one({
+            "email": data.email,
+            "notes": [new_note]
+        })
+    else:
+        Notes.update_one(
+            {"email": data.email},
+            {"$push": {"notes": new_note}}
+        )
+
+    return new_note
+
+
+# PUT - update note
+@app.put("/api/notes/{note_id}")
+async def update_note(note_id: str, data: dict):
+
+    update_fields = {}
+
+    if "text" in data:
+        update_fields["notes.$.text"] = data["text"]
+
+    if "color" in data:
+        update_fields["notes.$.color"] = data["color"]
+
+    if "pinned" in data:
+        update_fields["notes.$.pinned"] = data["pinned"]
+
+    if not update_fields:
+        raise HTTPException(
+            status_code=400,
+            detail="Nothing to update"
+        )
+
+    result = Notes.update_one(
+        {"notes.id": note_id},
+        {"$set": update_fields}
+    )
+
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Note not found"
+        )
+
+    return {"message": "Note updated successfully"}
+
+
+# DELETE - delete note
+@app.delete("/api/notes/{note_id}")
+async def delete_note(note_id: str):
+
+    result = Notes.update_one(
+        {"notes.id": note_id},
+        {"$pull": {"notes": {"id": note_id}}}
+    )
+
+    if result.modified_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="Note not found"
+        )
+
+    return {"message": "Note deleted successfully"}

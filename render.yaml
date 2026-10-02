@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: study-buddy-api
+    runtime: python
+    rootDir: Backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: MONGO_URI
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: APP_TIMEZONE
+        value: Asia/Kolkata
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: groq_API
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM
+        sync: false
+      - key: MAIL_USERNAME
+        sync: false
+      - key: MAIL_PASSWORD
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+      - key: MAIL_PORT
+        value: "465"
+      - key: MAIL_SERVER
+        value: smtp.gmail.com
+      - key: MAIL_STARTTLS
+        value: "false"
+      - key: MAIL_SSL_TLS
+        value: "true"
