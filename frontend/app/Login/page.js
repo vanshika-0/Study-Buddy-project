@@ -8,10 +8,15 @@ const Page = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
   async function handleSubmit(e) {
     e.preventDefault();
+    setError("");
+    setIsLoading(true);
+
     try {
       const response = await fetch(apiUrl("/Login"), {
         method: "POST",
@@ -19,13 +24,13 @@ const Page = () => {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: email.trim(), password })
       });
-      
+
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error("error while login");
+        throw new Error(data.detail || "Unable to login. Please try again.");
       }
-      const data = await response.json();
       console.log(data.message);
 
       localStorage.setItem("username", data.username);
@@ -38,6 +43,9 @@ const Page = () => {
       router.push("/Dashboard");
     } catch (e) {
       console.log("Error while logging in on Login pg", e);
+      setError(e.message || "Unable to login. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
   }
 
@@ -95,6 +103,15 @@ const Page = () => {
             </div>
           </div>
 
+          {error && (
+            <div
+              role="alert"
+              className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600"
+            >
+              {error}
+            </div>
+          )}
+
           <div className="flex justify-end -mt-2">
             <button
               type="button"
@@ -106,9 +123,10 @@ const Page = () => {
 
           <button
             type="submit"
+            disabled={isLoading}
             className="mt-2 p-4 w-full rounded-2xl bg-gradient-to-r from-pink-500 to-pink-600 text-white font-semibold shadow-lg shadow-pink-500/30 hover:shadow-pink-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
-            Login
+            {isLoading ? "Logging in..." : "Login"}
           </button>
 
           <p className="text-center text-pink-400 text-sm mt-1">

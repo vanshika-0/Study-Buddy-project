@@ -973,14 +973,15 @@ class logi(BaseModel):
 
 @app.post("/Login")
 async def login(data:logi):
-    exist=users.find_one({"email":data.email})
-    print("username",exist["username"])
+    exist=users.find_one({"email":data.email.strip()})
 
     if not exist:
-     raise HTTPException(status_code=404, detail="User not found")
+     raise HTTPException(status_code=404, detail="Unauthorized user: account not found")
+
+    print("username", exist.get("username"))
 
     if exist["password"] != data.password:
-     raise HTTPException(status_code=401, detail="Invalid password")
+     raise HTTPException(status_code=401, detail="Unauthorized user: invalid password")
 
     return {
     "message": "Login successful",

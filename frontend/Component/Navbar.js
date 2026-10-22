@@ -109,8 +109,8 @@ const Navbar = () => {
         </li>
         <li>
           <Link
-            href="/" onClick={handleProtectedClick}
-            className={navClass('/', true)}
+            href="/Setting" onClick={handleProtectedClick}
+            className={navClass('/Setting', true)}
           >
             <Settings size={17} />
             Settings
