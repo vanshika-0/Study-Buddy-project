@@ -17,13 +17,13 @@ import {
 } from "lucide-react";
 
 const scenes = {
-  Rain: ["#0f172a", "#164e63"],
-  Blue: ["#1d4ed8", "#38bdf8"],
-  Forest: ["#052e16", "#134e4a"],
-  Cafe: ["#451a03", "#78350f"],
-  Night: ["#111827", "#312e81"],
-  Fireplace: ["#450a0a", "#c2410c"],
-  Ocean: ["#083344", "#1e3a8a"],
+  Rain: ["var(--forest-navbar)", "var(--forest-accent-dark)"],
+  Blue: ["var(--forest-accent-dark)", "var(--forest-accent)"],
+  Forest: ["var(--forest-dark)", "var(--forest-navbar)"],
+  Cafe: ["var(--forest-dark)", "var(--forest-warm-text)"],
+  Night: ["var(--forest-text)", "var(--forest-navbar)"],
+  Fireplace: ["var(--forest-dark)", "var(--forest-warm-text)"],
+  Ocean: ["var(--forest-navbar)", "var(--forest-accent-dark)"],
 };
 const sceneVisuals = {
   Rain: "radial-gradient(circle at 70% 20%, rgba(125,211,252,.28), transparent 28%), linear-gradient(135deg,#07111f 0%,#164e63 52%,#0f172a 100%)",
@@ -76,7 +76,7 @@ const themeImages = {
 };
 const ambientForEnvironment = { Rain: "Rain", Forest: "Forest", Ocean: "Ocean", Fire: "Fireplace", Night: "Night", Cafe: "Cafe", Beach: "Ocean", Lake: "Ocean", Mountain: "Wind", Meadow: "Wind", Garden: "Wind", Cloud: "Wind", Snow: "Wind" };
 const worldVisuals = {
-  "Focus Bloom": "radial-gradient(circle at 25% 28%, rgba(254,240,138,.65), transparent 18%), linear-gradient(145deg,#831843,#ec4899 55%,#9d174d)",
+  "Focus Bloom": "radial-gradient(circle at 25% 28%, rgba(157,191,124,.35), transparent 18%), linear-gradient(145deg,var(--forest-text),var(--forest-accent) 55%,var(--forest-navbar))",
   "Lofi Clouds": "#7dd3fc",
   "Rainy Window": "#164e63",
   "Cozy CafÃ©": "#78350f",
@@ -131,7 +131,7 @@ const audioOptions = [
   ["White noise", "✨", "Soft white noise"],
 ];
 const readFocusPreference = (key, fallback) => typeof window === "undefined" ? fallback : localStorage.getItem(key) || fallback;
-// Focus Session opens with the requested soft pink default.
+// Focus Session opens with the requested forest default.
 // Other themes remain available after opening and can still be selected for
 // the current session.
 const initialWorldTheme = "Focus Bloom";
@@ -140,18 +140,18 @@ const themeColors = {
   Cool: ["#172554", "#0e7490"],
   Warm: ["#7c2d12", "#a16207"],
   Dark: ["#111827", "#312e81"],
-  Soft: ["#4c1d95", "#be185d"],
-  Bright: ["#0369a1", "#16a34a"],
+  Soft: ["var(--forest-heat-1)", "var(--forest-heat-3)"],
+  Bright: ["var(--forest-accent-dark)", "var(--forest-accent)"],
 };
 const themes = {
   Glass: ["bg-white/10 border-white/25", "font-light"],
   Neon: [
-    "bg-slate-950/50 border-cyan-300/50 shadow-[0_0_50px_rgba(34,211,238,.25)]",
-    "font-mono text-cyan-100",
+    "bg-[var(--forest-text)]/50 border-[var(--forest-accent)]/50 shadow-lg",
+    "font-mono text-[var(--forest-heat-2)]",
   ],
   Minimal: ["bg-black/25 border-white/10", "font-mono"],
-  Pastel: ["bg-rose-200/15 border-rose-100/35", "font-serif text-rose-50"],
-  Circular: ["bg-emerald-950/25 border-emerald-200/30", "font-light"],
+  Pastel: ["bg-[var(--forest-warm-bg)]/15 border-[var(--forest-warm-border)]/35", "font-serif text-[var(--forest-page)]"],
+  Circular: ["bg-[var(--forest-navbar)]/25 border-[var(--forest-heat-2)]/30", "font-light"],
 };
 const quotes = [
   "The work is quiet. The result will speak.",

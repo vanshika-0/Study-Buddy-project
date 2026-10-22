@@ -11,12 +11,12 @@ const toLocalDateString = (date) => {
 };
 const freshFetchOptions = { cache: "no-store" };
 const activityColor = (count, maximum) => {
-  if (count === 0) return "#e5e7eb";
+  if (count === 0) return "var(--forest-heat-1)";
   const level = count / Math.max(maximum, 1);
-  if (level <= 0.25) return "#bbf7d0";
-  if (level <= 0.5) return "#86efac";
-  if (level <= 0.75) return "#4ade80";
-  return "#15803d";
+  if (level <= 0.25) return "var(--forest-heat-2)";
+  if (level <= 0.5) return "var(--forest-heat-3)";
+  if (level <= 0.75) return "var(--forest-heat-4)";
+  return "var(--forest-heat-5)";
 };
 const formatStudyTime = (totalSeconds = 0) => {
   const seconds = Math.max(0, Number(totalSeconds) || 0);
@@ -591,7 +591,7 @@ const Page = () => {
                         <polyline
                           points={linePoints}
                           fill="none"
-                          stroke="#f472b6"
+                          stroke="var(--forest-accent)"
                           strokeWidth="2.5"
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -618,7 +618,7 @@ const Page = () => {
                               cx={point.x}
                               cy={point.y}
                               r="4"
-                              fill="#ec4899"
+                              fill="var(--forest-accent)"
                               stroke="white"
                               strokeWidth="1.5"
                               className="transition-all group-hover:r-[5.5]"
@@ -629,7 +629,7 @@ const Page = () => {
                               textAnchor="middle"
                               fontSize="9"
                               fontWeight="600"
-                              fill="#be185d"
+                              fill="var(--forest-accent-dark)"
                               className="opacity-0 transition-opacity group-hover:opacity-100"
                             >
                               {" "}
@@ -887,7 +887,7 @@ const Page = () => {
                         style={{
                           backgroundColor:
                             level === 0
-                              ? "#e5e7eb"
+                              ? "var(--forest-heat-1)"
                               : activityColor(
                                   Math.ceil(maxActivity * level),
                                   maxActivity,

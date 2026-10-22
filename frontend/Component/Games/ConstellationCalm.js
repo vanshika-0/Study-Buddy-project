@@ -26,20 +26,20 @@ export default function ConstellationCalm({ onResume }) {
     setName("");
   };
   return (
-    <section className="rounded-3xl border border-indigo-300/30 bg-gradient-to-br from-slate-950 via-indigo-950 to-violet-950 p-5 text-white shadow-lg shadow-indigo-200/30">
+    <section className="rounded-3xl border border-[var(--forest-accent)]/40 bg-[var(--forest-navbar)] p-5 text-white shadow-lg shadow-black/20">
       <div className="flex items-start justify-between">
         <div>
           <span className="text-3xl">🌌</span>
           <h2 className="mt-2 text-xl font-bold">Constellation Calm</h2>
-          <p className="mt-1 text-sm text-indigo-200">
+          <p className="mt-1 text-sm text-[var(--forest-heat-2)]">
             Connect a few stars and let your thoughts settle.
           </p>
         </div>
-        <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-indigo-100">
+        <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-[var(--forest-heat-1)]">
           1–2 min
         </span>
       </div>
-      <div className="relative mt-4 h-64 overflow-hidden rounded-2xl bg-black/30">
+      <div className="relative mt-4 h-64 overflow-hidden rounded-2xl bg-[var(--forest-text)]/40">
         <svg
           viewBox="0 0 100 100"
           preserveAspectRatio="none"
@@ -55,7 +55,7 @@ export default function ConstellationCalm({ onResume }) {
                 y1={a.y}
                 x2={b.x}
                 y2={b.y}
-                stroke="#c4b5fd"
+                stroke="var(--forest-heat-3)"
                 strokeWidth=".45"
               />
             );
@@ -66,14 +66,14 @@ export default function ConstellationCalm({ onResume }) {
               cx={star.x}
               cy={star.y}
               r={selected.includes(star.id) ? 1.7 : 1}
-              fill={selected.includes(star.id) ? "#fef08a" : "#c4b5fd"}
+              fill={selected.includes(star.id) ? "var(--forest-accent)" : "var(--forest-heat-3)"}
               className="cursor-pointer transition-all hover:r-[1.8]"
               onClick={() => choose(star.id)}
             />
           ))}
         </svg>
         {complete && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-indigo-950/75 text-center backdrop-blur-sm">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[var(--forest-navbar)]/85 text-center backdrop-blur-sm">
             <span className="text-3xl">✨</span>
             <p className="mt-2 font-bold">You Created a Constellation!</p>
             <input
@@ -82,7 +82,7 @@ export default function ConstellationCalm({ onResume }) {
               placeholder={
                 NAMES[selected.reduce((a, b) => a + b, 0) % NAMES.length]
               }
-              className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-center text-xs text-white outline-none placeholder:text-indigo-200"
+              className="mt-3 rounded-lg bg-white/10 px-3 py-2 text-center text-xs text-white outline-none placeholder:text-[var(--forest-heat-2)]"
             />
             <div className="mt-3 flex gap-2">
               <button
@@ -94,7 +94,7 @@ export default function ConstellationCalm({ onResume }) {
               </button>
               <button
                 onClick={onResume}
-                className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-indigo-900"
+                className="rounded-xl bg-white px-3 py-2 text-xs font-semibold text-[var(--forest-text)]"
               >
                 Resume Focus
               </button>
@@ -102,7 +102,7 @@ export default function ConstellationCalm({ onResume }) {
           </div>
         )}
       </div>
-      <p className="mt-3 text-center text-xs text-indigo-200">
+      <p className="mt-3 text-center text-xs text-[var(--forest-heat-2)]">
         {complete
           ? `Name it ${name || NAMES[selected.reduce((a, b) => a + b, 0) % NAMES.length]}`
           : `${selected.length}/6 stars connected`}

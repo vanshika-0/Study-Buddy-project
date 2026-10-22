@@ -1,15 +1,33 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --app-surface: #ffffff;
-  --app-soft: #fff1f8;
-  --app-accent-soft: #f5f3ff;
-  --app-border: #fce7f3;
-  --app-muted: #6b7280;
-  --app-accent: #7c3aed;
-  --app-accent-strong: #6d28d9;
+  --forest-page: #F5F6F1;
+  --forest-card: #FFFFFF;
+  --forest-border: #E1E4D6;
+  --forest-navbar: #2F3620;
+  --forest-accent: #6B8F4E;
+  --forest-accent-dark: #4A6B2F;
+  --forest-text: #14130A;
+  --forest-secondary: #5C6048;
+  --forest-warm-bg: #F3ECE4;
+  --forest-warm-border: #E2D3C0;
+  --forest-warm-text: #6B4A32;
+  --forest-streak: #A8957A;
+  --forest-dark: #3B2B20;
+  --forest-heat-1: #ECEEE4;
+  --forest-heat-2: #CBDDB5;
+  --forest-heat-3: #9DBF7C;
+  --forest-heat-4: #6B8F4E;
+  --forest-heat-5: #2F3620;
+  --background: var(--forest-page);
+  --foreground: var(--forest-text);
+  --app-surface: var(--forest-card);
+  --app-soft: var(--forest-page);
+  --app-accent-soft: var(--forest-warm-bg);
+  --app-border: var(--forest-border);
+  --app-muted: var(--forest-secondary);
+  --app-accent: var(--forest-accent);
+  --app-accent-strong: var(--forest-accent-dark);
 }
 
 @theme inline {
@@ -19,9 +37,8 @@
   --font-mono: var(--font-geist-mono);
 }
 
-html[data-theme="ocean"] { --background: #effaff; --foreground: #12324a; --app-surface: #ffffff; --app-soft: #ecfeff; --app-accent-soft: #eff6ff; --app-border: #bae6fd; --app-muted: #527085; --app-accent: #0369a1; --app-accent-strong: #075985; }
-html[data-theme="meadow"] { --background: #f2fbf5; --foreground: #183b2a; --app-surface: #ffffff; --app-soft: #ecfdf5; --app-accent-soft: #f0fdf4; --app-border: #bbf7d0; --app-muted: #557260; --app-accent: #047857; --app-accent-strong: #065f46; }
-html[data-mode="dark"] { --background: #171329; --foreground: #f8f7ff; --app-surface: #241e3b; --app-soft: #2b2448; --app-accent-soft: #302753; --app-border: #493d6b; --app-muted: #b7add2; --app-accent: #a78bfa; --app-accent-strong: #8b5cf6; }
+html[data-theme="ocean"], html[data-theme="meadow"], html[data-theme="blossom"] { --background: var(--forest-page); --foreground: var(--forest-text); --app-surface: var(--forest-card); --app-soft: var(--forest-page); --app-accent-soft: var(--forest-warm-bg); --app-border: var(--forest-border); --app-muted: var(--forest-secondary); --app-accent: var(--forest-accent); --app-accent-strong: var(--forest-accent-dark); }
+html[data-mode="dark"] { --background: var(--forest-text); --foreground: var(--forest-page); --app-surface: var(--forest-navbar); --app-soft: var(--forest-dark); --app-accent-soft: var(--forest-navbar); --app-border: var(--forest-accent-dark); --app-muted: var(--forest-streak); --app-accent: var(--forest-accent); --app-accent-strong: var(--forest-accent-dark); }
 
 body {
   background: var(--background);
@@ -31,9 +48,31 @@ body {
 
 body { background: var(--background); color: var(--foreground); transition: background-color .2s ease, color .2s ease; }
 
-/* Existing pages use Tailwind's pink/purple utility palette. These shared
-   overrides let the persisted app theme reach those pages without rewriting
-   each feature's layout. */
+/* Existing pages use Tailwind utilities. These shared mappings apply the
+   forest palette everywhere without changing layout or behavior. */
+.bg-white { background-color: var(--forest-card) !important; }
+.bg-pink-50, .bg-pink-50\/60, .bg-gray-50 { background-color: var(--forest-page) !important; }
+.bg-pink-100, .bg-pink-200, .bg-gray-100 { background-color: var(--forest-border) !important; }
+.bg-pink-300, .bg-pink-400, .bg-pink-500 { background-color: var(--forest-accent) !important; }
+.bg-pink-600, .bg-pink-700 { background-color: var(--forest-accent-dark) !important; }
+.bg-green-50, .bg-emerald-50, .bg-cyan-50, .bg-blue-50, .bg-purple-50, .bg-indigo-50 { background-color: var(--forest-page) !important; }
+.bg-green-500, .bg-green-600, .bg-emerald-500, .bg-emerald-600 { background-color: var(--forest-accent) !important; }
+.bg-amber-50, .bg-amber-100, .bg-amber-200, .bg-rose-50, .bg-rose-100 { background-color: var(--forest-warm-bg) !important; }
+.bg-amber-300 { background-color: var(--forest-warm-border) !important; }
+.text-pink-400, .text-pink-500, .text-pink-600, .text-green-500, .text-green-600, .text-emerald-600 { color: var(--forest-accent) !important; }
+.text-pink-700, .text-pink-900, .text-gray-800, .text-gray-700, .text-indigo-900 { color: var(--forest-text) !important; }
+.text-gray-600, .text-gray-500, .text-gray-400, .text-indigo-200, .text-indigo-100 { color: var(--forest-secondary) !important; }
+.text-amber-600, .text-amber-800, .text-rose-500, .text-rose-600, .text-rose-700 { color: var(--forest-warm-text) !important; }
+.border-pink-100, .border-pink-200, .border-gray-100, .border-gray-200 { border-color: var(--forest-border) !important; }
+.border-pink-300, .border-pink-400, .border-green-100, .border-emerald-200 { border-color: var(--forest-accent) !important; }
+.border-amber-100, .border-amber-200, .border-rose-200 { border-color: var(--forest-warm-border) !important; }
+.from-pink-300, .from-pink-400, .from-pink-500 { --tw-gradient-from: var(--forest-accent) var(--tw-gradient-from-position); }
+.to-pink-200, .to-pink-300, .to-pink-400, .to-pink-500, .to-pink-600 { --tw-gradient-to: var(--forest-accent-dark) var(--tw-gradient-to-position); }
+.from-pink-50, .to-pink-50 { --tw-gradient-from: var(--forest-page) var(--tw-gradient-from-position); --tw-gradient-to: var(--forest-page) var(--tw-gradient-to-position); }
+.placeholder-pink-300::placeholder { color: var(--forest-secondary) !important; }
+.shadow-pink-100, .shadow-pink-200, .shadow-pink-300, .shadow-pink-400 { --tw-shadow-color: var(--forest-border); }
+.shadow-pink-500 { --tw-shadow-color: color-mix(in srgb, var(--forest-accent) 35%, transparent); }
+.ring-pink-200 { --tw-ring-color: var(--forest-border) !important; }
 html[data-theme="ocean"] .bg-pink-50, html[data-theme="meadow"] .bg-pink-50,
 html[data-mode="dark"] .bg-pink-50, html[data-mode="dark"] .bg-pink-100 { background-color: var(--app-soft) !important; }
 html[data-theme="ocean"] .bg-pink-50, html[data-theme="meadow"] .bg-pink-50,
@@ -49,18 +88,18 @@ html[data-mode="dark"] .text-pink-500, html[data-mode="dark"] .text-gray-500,
 html[data-mode="dark"] .text-gray-400 { color: var(--app-muted) !important; }
 html[data-mode="dark"] .text-gray-800, html[data-mode="dark"] .text-gray-700,
 html[data-mode="dark"] .text-gray-600 { color: var(--foreground) !important; }
-html[data-mode="dark"] aside { background: linear-gradient(180deg, #31245d 0%, #241e3b 100%) !important; }
+html[data-mode="dark"] aside { background: var(--forest-navbar) !important; }
 html[data-mode="dark"] main.bg-gradient-to-b, html[data-mode="dark"] main.bg-gradient-to-br { background-image: linear-gradient(to bottom, var(--app-soft), var(--app-accent-soft)) !important; }
-html[data-mode="dark"] aside.bg-gradient-to-b { background-image: linear-gradient(180deg, #31245d 0%, #241e3b 100%) !important; }
+html[data-mode="dark"] aside.bg-gradient-to-b { background-image: none !important; background-color: var(--forest-navbar) !important; }
 html[data-mode="dark"] input, html[data-mode="dark"] textarea, html[data-mode="dark"] select { background-color: var(--app-surface) !important; color: var(--foreground) !important; border-color: var(--app-border) !important; }
-html[data-mode="dark"] .bg-black\/30 { background-color: #100c1e !important; }
+html[data-mode="dark"] .bg-black\/30 { background-color: var(--forest-text) !important; }
 html[data-mode="dark"] .study-chat { background: var(--app-surface) !important; border-color: var(--app-border); }
 html[data-mode="dark"] .study-chat .bg-pink-50\/60 { background-color: var(--app-soft) !important; }
 html[data-theme="ocean"] .bg-pink-600, html[data-theme="ocean"] .bg-pink-500 { background-color: var(--app-accent) !important; }
 html[data-theme="meadow"] .bg-pink-600, html[data-theme="meadow"] .bg-pink-500 { background-color: var(--app-accent) !important; }
 html[data-theme="ocean"] .from-pink-500, html[data-theme="meadow"] .from-pink-500 { --tw-gradient-from: var(--app-accent) var(--tw-gradient-from-position); }
 html[data-theme="ocean"] .to-pink-600, html[data-theme="meadow"] .to-pink-600 { --tw-gradient-to: var(--app-accent-strong) var(--tw-gradient-to-position); }
-.chat-dot { display: inline-block; width: 5px; height: 5px; margin: 0 1px; border-radius: 999px; background: #8b5cf6; animation: chat-bounce 1s infinite ease-in-out; }
+.chat-dot { display: inline-block; width: 5px; height: 5px; margin: 0 1px; border-radius: 999px; background: var(--forest-accent); animation: chat-bounce 1s infinite ease-in-out; }
 .chat-dot:nth-child(2) { animation-delay: .15s; }.chat-dot:nth-child(3) { animation-delay: .3s; }
 @keyframes chat-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-3px); opacity: 1; } }
 

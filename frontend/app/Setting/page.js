@@ -14,16 +14,16 @@ import {
 
 const THEMES = {
   blossom: {
-    label: "Blossom",
-    preview: "bg-gradient-to-br from-pink-300 to-pink-400",
+    label: "Sage Matcha",
+    preview: "bg-gradient-to-br from-[var(--forest-accent)] to-[var(--forest-accent-dark)]",
   },
   ocean: {
-    label: "Ocean Calm",
-    preview: "bg-gradient-to-br from-cyan-300 to-blue-500",
+    label: "Forest Calm",
+    preview: "bg-gradient-to-br from-[var(--forest-heat-3)] to-[var(--forest-navbar)]",
   },
   meadow: {
-    label: "Soft Meadow",
-    preview: "bg-gradient-to-br from-emerald-300 to-teal-500",
+    label: "Deep Forest",
+    preview: "bg-gradient-to-br from-[var(--forest-accent-dark)] to-[var(--forest-dark)]",
   },
 };
 const storedPreference = (key, fallback) =>

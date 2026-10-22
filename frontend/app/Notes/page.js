@@ -7,11 +7,11 @@ const FONT_HEADING = "'Baloo 2', ui-rounded, 'Segoe UI', sans-serif";
 const FONT_BODY = "'Quicksand', ui-rounded, 'Segoe UI', sans-serif";
 
 const PALETTE = [
-  { key: "pink", bg: "#FFE3F1", border: "#FFB8DD", dot: "#FF7AC6" },
-  { key: "lavender", bg: "#EFE3FF", border: "#D3B8FF", dot: "#B07CFF" },
-  { key: "mint", bg: "#DFFBF0", border: "#A7EFD1", dot: "#3FCF8E" },
-  { key: "yellow", bg: "#FFF6D9", border: "#FFE494", dot: "#F7C948" },
-  { key: "peach", bg: "#FFE8E0", border: "#FFC2AE", dot: "#FF8A65" },
+  { key: "sage", bg: "var(--forest-warm-bg)", border: "var(--forest-warm-border)", dot: "var(--forest-accent)" },
+  { key: "meadow", bg: "var(--forest-heat-1)", border: "var(--forest-heat-2)", dot: "var(--forest-heat-3)" },
+  { key: "leaf", bg: "var(--forest-heat-2)", border: "var(--forest-heat-3)", dot: "var(--forest-accent)" },
+  { key: "stone", bg: "var(--forest-page)", border: "var(--forest-border)", dot: "var(--forest-streak)" },
+  { key: "earth", bg: "var(--forest-warm-bg)", border: "var(--forest-warm-border)", dot: "var(--forest-dark)" },
 ];
 
 // Point this at your FastAPI backend
@@ -197,41 +197,41 @@ if (!res.ok) throw new Error("Failed to update note");
   return (
     <div
       className="min-h-screen w-full"
-      style={{ background: "#FFF6FB", fontFamily: FONT_BODY }}
+      style={{ background: "var(--forest-page)", color: "var(--forest-text)", fontFamily: FONT_BODY }}
     >
       <GoogleFonts />
 
       {/* Header */}
-      <header className="px-5 sm:px-10 pt-8 pb-4 sticky top-0 z-20 bg-[#FFF6FB]/90 backdrop-blur">
+      <header className="px-5 sm:px-10 pt-8 pb-4 sticky top-0 z-20 bg-[var(--forest-page)]/90 backdrop-blur">
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center gap-2">
-            <Heart className="w-5 h-5 text-[#FF7AC6]" fill="#FF7AC6" strokeWidth={0} />
+              <Heart className="w-5 h-5 text-[var(--forest-accent)]" fill="var(--forest-accent)" strokeWidth={0} />
             <h1
-              className="text-[26px] text-[#4A2545]"
+              className="text-[26px] text-[var(--forest-text)]"
               style={{ fontFamily: FONT_HEADING, fontWeight: 700 }}
             >
               chotu chotu notes
             </h1>
-            <Sparkles className="w-4 h-4 text-[#F7C948]" />
+              <Sparkles className="w-4 h-4 text-[var(--forest-streak)]" />
           </div>
-          <p className="text-sm text-[#9C7B98] mt-1 ml-7">
+          <p className="text-sm text-[var(--forest-secondary)] mt-1 ml-7">
             {notes.length} {notes.length === 1 ? "note" : "notes"} saved · little thoughts, safely kept
           </p>
 
           <div className="mt-5 flex items-center gap-3">
             <div className="flex-1 relative">
-              <Search className="w-4 h-4 text-[#C79BC4] absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-4 h-4 text-[var(--forest-secondary)] absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="find a note..."
-                className="w-full h-11 pl-10 pr-4 rounded-2xl bg-white border-2 border-[#FFD9EE] text-sm text-[#4A2545] placeholder-[#C79BC4] outline-none focus:border-[#FF7AC6] transition-colors"
+                className="w-full h-11 pl-10 pr-4 rounded-2xl bg-white border-2 border-[var(--forest-border)] text-sm text-[var(--forest-text)] placeholder-[var(--forest-secondary)] outline-none focus:border-[var(--forest-accent)] transition-colors"
                 style={{ fontFamily: FONT_BODY }}
               />
             </div>
             <button
               onClick={addNote}
-              className="h-11 px-5 rounded-2xl bg-[#FF7AC6] hover:bg-[#F7649F] text-white text-sm shrink-0 flex items-center gap-1.5 shadow-[0_4px_14px_rgba(255,122,198,0.45)] active:scale-95 transition-all"
+              className="h-11 px-5 rounded-2xl bg-[var(--forest-accent)] hover:bg-[var(--forest-accent-dark)] text-white text-sm shrink-0 flex items-center gap-1.5 shadow-lg active:scale-95 transition-all"
               style={{ fontFamily: FONT_HEADING, fontWeight: 600 }}
             >
               <Plus className="w-4 h-4" strokeWidth={3} />
@@ -243,18 +243,18 @@ if (!res.ok) throw new Error("Failed to update note");
 
       {/* Notes grid */}
       <main className="px-5 sm:px-10 pb-24 pt-2 max-w-5xl mx-auto">
-        {!loaded && <div className="rounded-2xl bg-white p-6 text-center text-sm text-[#9C7B98]">Loading your notes...</div>}
-        {loadError && <div className="mb-4 rounded-2xl border border-pink-200 bg-white p-4 text-sm text-[#9C527D]">{loadError}</div>}
+        {!loaded && <div className="rounded-2xl bg-white p-6 text-center text-sm text-[var(--forest-secondary)]">Loading your notes...</div>}
+        {loadError && <div className="mb-4 rounded-2xl border border-[var(--forest-warm-border)] bg-white p-4 text-sm text-[var(--forest-warm-text)]">{loadError}</div>}
         {ordered.length === 0 && loaded && (
           <div className="text-center py-24">
             <p className="text-4xl mb-2">(´｡• ᵕ •｡`)</p>
             <p
-              className="text-lg text-[#4A2545]"
+              className="text-lg text-[var(--forest-text)]"
               style={{ fontFamily: FONT_HEADING, fontWeight: 600 }}
             >
               {query ? "no notes match that" : "no notes yet"}
             </p>
-            <p className="text-sm text-[#B698B3] mt-1">
+            <p className="text-sm text-[var(--forest-secondary)] mt-1">
               {query ? "try a different search" : "tap \u201cnew note\u201d to add your first one"}
             </p>
           </div>
@@ -304,7 +304,7 @@ if (!res.ok) throw new Error("Failed to update note");
                     >
                       <Pin
                         className="w-3.5 h-3.5"
-                        style={{ color: note.pinned ? c.dot : "#B698B3" }}
+                        style={{ color: note.pinned ? c.dot : "var(--forest-secondary)" }}
                         fill={note.pinned ? c.dot : "none"}
                         strokeWidth={2}
                       />
@@ -314,7 +314,7 @@ if (!res.ok) throw new Error("Failed to update note");
                       aria-label="delete note"
                       className="w-6 h-6 rounded-full flex items-center justify-center hover:bg-black/5"
                     >
-                      <Trash2 className="w-3.5 h-3.5 text-[#B698B3]" strokeWidth={2} />
+                      <Trash2 className="w-3.5 h-3.5 text-[var(--forest-secondary)]" strokeWidth={2} />
                     </button>
                   </div>
                 </div>
@@ -325,16 +325,16 @@ if (!res.ok) throw new Error("Failed to update note");
                   onChange={(e) => updateText(note.id, e.target.value)}
                   placeholder="write something cute..."
                   rows={3}
-                  className="w-full bg-transparent resize-none outline-none text-[#4A2545] text-[15px] placeholder-[#C79BC4]/70 leading-relaxed"
+                  className="w-full bg-transparent resize-none outline-none text-[var(--forest-text)] text-[15px] placeholder-[var(--forest-secondary)] leading-relaxed"
                   style={{ fontFamily: FONT_BODY, fontWeight: 500 }}
                 />
 
                 <div className="flex items-center justify-between mt-1">
-                  <span className="text-[11px] text-[#B698B3]">{timeAgo(note.createdAt)}</span>
+                  <span className="text-[11px] text-[var(--forest-secondary)]">{timeAgo(note.createdAt)}</span>
                   {note.pinned && (
                     <span
                       className="text-[10px] px-1.5 py-0.5 rounded-full"
-                      style={{ background: c.border, color: "#4A2545" }}
+                      style={{ background: c.border, color: "var(--forest-text)" }}
                     >
                       pinned
                     </span>
@@ -350,13 +350,13 @@ if (!res.ok) throw new Error("Failed to update note");
       <button
         onClick={addNote}
         aria-label="add note"
-        className="sm:hidden fixed bottom-6 right-6 w-14 h-14 rounded-full bg-[#FF7AC6] text-white flex items-center justify-center shadow-[0_6px_18px_rgba(255,122,198,0.55)] active:scale-95 transition-transform"
+        className="sm:hidden fixed bottom-6 right-6 w-14 h-14 rounded-full bg-[var(--forest-accent)] text-white flex items-center justify-center shadow-lg active:scale-95 transition-transform"
       >
         <Plus className="w-6 h-6" strokeWidth={3} />
       </button>
 
       {loaded && (
-        <div className="fixed bottom-3 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 sm:bottom-6 text-[11px] text-[#C79BC4]">
+        <div className="fixed bottom-3 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-6 sm:bottom-6 text-[11px] text-[var(--forest-secondary)]">
           {saveState === "saving" ? "saving..." : saveState === "saved" ? "all notes saved ✓" : ""}
         </div>
       )}
